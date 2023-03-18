@@ -1,7 +1,9 @@
 package p2p
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	"net"
 	"sync"
 )
@@ -19,20 +21,29 @@ type ServerConfig struct {
 	ListenAddr string
 }
 
+type Message struct {
+	Payload io.Reader
+	From    net.Addr
+}
+
 type Server struct {
 	ServerConfig
 
+	handler  Query
 	listener net.Listener
 	mu       sync.RWMutex
 	peers    map[net.Addr]*Peer
 	addPeer  chan *Peer
+	msgCh    chan *Message
 }
 
 func NewServer(config ServerConfig) *Server {
 	return &Server{
+		handler:      *NewQuery(),
 		ServerConfig: config,
 		peers:        make(map[net.Addr]*Peer),
 		addPeer:      make(chan *Peer),
+		msgCh:        make(chan *Message),
 	}
 }
 
@@ -54,6 +65,11 @@ func (s *Server) handleConn(conn net.Conn) {
 		n, err := conn.Read(buf)
 		if err != nil {
 			break
+		}
+
+		s.msgCh <- &Message{
+			Payload: bytes.NewReader(buf[:n]),
+			From:    conn.RemoteAddr(),
 		}
 
 		fmt.Println(string(buf[:n]))
